@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Кто хочет стать миллионером? — Игра по истории</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>👑</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- ===== decorative background ===== -->
+  <div class="bg-lights" aria-hidden="true">
+    <div class="rays rays-1"></div>
+    <div class="rays rays-2"></div>
+    <div class="vignette"></div>
+  </div>
+  <canvas id="confetti-canvas" aria-hidden="true"></canvas>
+
+  <!-- ===== SETUP SCREEN ===== -->
+  <section id="screen-setup" class="screen hidden">
+    <div class="setup-wrap">
+      <div class="logo-block">
+        <div class="logo-crown">👑</div>
+        <h1 class="glow-title" id="setup-title">КТО ХОЧЕТ СТАТЬ МИЛЛИОНЕРОМ?</h1>
+        <p class="setup-subtitle" id="setup-subtitle"></p>
+        <p class="setup-theme hidden" id="setup-theme"></p>
+      </div>
+
+      <div class="panel setup-panel">
+        <h2 class="panel-title">🎓 Команды-участницы</h2>
+        <div class="team-add-row">
+          <input id="team-name-input" type="text" maxlength="40" placeholder="Название команды…" autocomplete="off">
+          <button id="btn-add-team" class="btn btn-gold">＋ Добавить</button>
+        </div>
+        <ul id="setup-teams" class="setup-team-list"></ul>
+        <div class="setup-stats" id="setup-stats"></div>
+        <button id="btn-start" class="btn btn-start" disabled>🎮&nbsp; НАЧАТЬ ИГРУ</button>
+      </div>
+
+      <details class="rules panel">
+        <summary>📖 Как играть (памятка ведущему)</summary>
+        <div class="rules-body">
+          <ol>
+            <li>Добавьте команды и нажмите «Начать игру».</li>
+            <li>Кликните по карточке команды — это её ход (карточка подсветится золотом).</li>
+            <li>Команда выбирает стоимость вопроса (1, 2 или 3 балла) — кликните по нужной колонке: закрутится <b>рулетка</b> и случайно выберет вопрос из этой категории.</li>
+            <li>Команда совещается и называет ответ — кликните по выбранному варианту. <b>Верно:</b> баллы начисляются, <b>неверно:</b> баллы вычитаются.</li>
+            <li>У каждой команды по одной подсказке: <b>50:50</b> (убирает два неверных варианта), <b>📞 Звонок учителю</b> и <b>👥 Помощь зала</b> (таймер, пока идёт обсуждение).</li>
+            <li>Сыгранные вопросы сгорают — другие команды их уже не получат.</li>
+            <li>Когда решите заканчивать (или когда вопросы кончатся) — нажмите <b>«🏁 Подвести итоги»</b>: появится команда-победитель.</li>
+          </ol>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <!-- ===== GAME SCREEN ===== -->
+  <section id="screen-game" class="screen hidden">
+    <header class="game-header">
+      <div class="header-title">
+        <span class="crown">👑</span>
+        <span id="game-title">КТО ХОЧЕТ СТАТЬ МИЛЛИОНЕРОМ?</span>
+      </div>
+      <div class="header-chips">
+        <span class="chip chip-turn" id="header-turn">Ход: —</span>
+        <span class="chip" id="header-left">Осталось вопросов: …</span>
+      </div>
+      <div class="header-actions">
+        <button id="btn-sound" class="btn btn-icon" title="Звук вкл/выкл">🔊</button>
+        <button id="btn-finish" class="btn btn-finish">🏁 Подвести итоги</button>
+      </div>
+    </header>
+
+    <main class="game-main">
+      <aside class="teams-panel" id="teams-panel"></aside>
+      <div class="board-wrap">
+        <div id="board" class="board"></div>
+        <div id="board-hint" class="board-hint">Выберите команду (клик по её карточке), затем стоимость вопроса — колонку на табло</div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ===== ROULETTE OVERLAY ===== -->
+  <div id="overlay-roulette" class="overlay hidden">
+    <div class="roulette-box">
+      <div class="roulette-title">🎰 РУЛЕТКА ВОПРОСОВ</div>
+      <div class="roulette-sub" id="roulette-sub"></div>
+      <div class="reel-frame">
+        <div class="reel-glow"></div>
+        <div class="reel-strip" id="reel-strip"></div>
+        <div class="reel-pointer"></div>
+        <div class="reel-mask reel-mask-left"></div>
+        <div class="reel-mask reel-mask-right"></div>
+      </div>
+      <div class="roulette-result hidden" id="roulette-result"></div>
+    </div>
+  </div>
+
+  <!-- ===== QUESTION OVERLAY ===== -->
+  <div id="overlay-question" class="overlay hidden">
+    <div class="q-stage">
+      <div class="q-top">
+        <div class="q-team-badge" id="q-team-badge"></div>
+        <div class="q-meta">
+          <div class="q-number" id="q-number"></div>
+          <div class="q-points" id="q-points"></div>
+        </div>
+      </div>
+
+      <div class="q-text-box">
+        <div class="q-text" id="q-text"></div>
+      </div>
+
+      <div class="q-options" id="q-options"></div>
+
+      <div class="q-lifelines" id="q-lifelines">
+        <button class="lifeline-btn" data-ll="fifty">
+          <span class="ll-icon">½</span><span class="ll-name">50:50</span>
+          <span class="ll-hint">убрать два неверных</span>
+        </button>
+        <button class="lifeline-btn" data-ll="phone">
+          <span class="ll-icon">📞</span><span class="ll-name">Звонок учителю</span>
+          <span class="ll-hint">таймер на подсказку</span>
+        </button>
+        <button class="lifeline-btn" data-ll="audience">
+          <span class="ll-icon">👥</span><span class="ll-name">Помощь зала</span>
+          <span class="ll-hint">таймер на обсуждение</span>
+        </button>
+      </div>
+
+      <div id="q-explain" class="q-explain hidden"></div>
+
+      <div id="q-actions" class="q-actions">
+        <button id="btn-pass" class="btn btn-ghost hidden">🏳️ Сдать ход (0 очков)</button>
+        <button id="btn-next-turn" class="btn btn-gold hidden">Следующий ход →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TIMER OVERLAY (phone / audience) ===== -->
+  <div id="overlay-timer" class="overlay hidden">
+    <div class="timer-box">
+      <div class="timer-icon" id="timer-icon">📞</div>
+      <div class="timer-label" id="timer-label"></div>
+      <div class="timer-sub" id="timer-sub"></div>
+      <div class="timer-ring-wrap">
+        <svg class="timer-ring" viewBox="0 0 220 220">
+          <circle class="ring-bg" cx="110" cy="110" r="98"></circle>
+          <circle class="ring-fg" id="timer-circle" cx="110" cy="110" r="98"></circle>
+        </svg>
+        <div class="timer-seconds" id="timer-seconds">60</div>
+      </div>
+      <div class="timer-actions">
+        <button id="btn-timer-pause" class="btn btn-ghost">⏸ Пауза</button>
+        <button id="btn-timer-close" class="btn btn-gold">✔ Завершить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== END BANNER (all questions used) ===== -->
+  <div id="overlay-endbanner" class="overlay hidden">
+    <div class="endbanner-box">
+      <div class="endbanner-icon">🎉</div>
+      <div class="endbanner-text" id="endbanner-text">Все вопросы разыграны!</div>
+      <div class="endbanner-sub">Сейчас будут подведены итоги…</div>
+    </div>
+  </div>
+
+  <!-- ===== RESULTS SCREEN ===== -->
+  <section id="screen-results" class="screen hidden">
+    <div class="results-wrap">
+      <h1 class="glow-title results-title">🏆 ИТОГИ ИГРЫ</h1>
+      <p class="results-theme" id="results-theme"></p>
+      <div class="results-winner" id="results-winner"></div>
+      <div class="podium" id="results-podium"></div>
+      <div class="panel ranking-panel">
+        <h2 class="panel-title">Итоговая таблица</h2>
+        <div id="results-ranking" class="ranking"></div>
+      </div>
+      <div class="results-actions">
+        <button id="btn-new-game" class="btn btn-gold">🔄 Новая игра (те же команды)</button>
+        <button id="btn-full-reset" class="btn btn-ghost">🧹 Полный сброс</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== CONFIRM MODAL ===== -->
+  <div id="modal-confirm" class="overlay overlay-top hidden">
+    <div class="confirm-box panel">
+      <div class="confirm-title" id="confirm-title">Вы уверены?</div>
+      <div class="confirm-text" id="confirm-text"></div>
+      <div class="confirm-actions">
+        <button id="btn-confirm-no" class="btn btn-ghost">Отмена</button>
+        <button id="btn-confirm-yes" class="btn btn-danger">Да</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts" aria-live="polite"></div>
+
+  <script src="js/audio.js"></script>
+  <script src="js/confetti.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/roulette.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

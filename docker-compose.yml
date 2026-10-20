@@ -1,0 +1,31 @@
+services:
+  millionaire:
+    build: .
+    image: millionaire-quiz:latest
+    container_name: millionaire-quiz
+    restart: unless-stopped
+    ports:
+      # порт на хосте берётся из .env (PORT), внутри контейнера всегда 8080
+      - "${PORT:-8080}:8080"
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      # --- тексты шапки (пусто = брать из meta файла quiz.json) ---
+      Game__Title: ${GAME_TITLE:-}
+      Game__Subtitle: ${GAME_SUBTITLE:-}
+      Game__Theme: ${GAME_THEME:-}
+      # --- таймеры подсказок, в секундах ---
+      Game__PhoneSeconds: ${PHONE_SECONDS:-60}
+      Game__AudienceSeconds: ${AUDIENCE_SECONDS:-60}
+      # --- сколько очков стоит резервный вопрос (0 = не влияет на счёт) ---
+      Game__BackupPoints: ${BACKUP_POINTS:-0}
+      # --- пути внутри контейнера ---
+      Game__QuizPath: /app/Data/quiz.json
+      Game__StatePath: /app/state/gamestate.json
+    volumes:
+      # вопросы можно править на сервере без пересборки образа
+      - ./Data/quiz.json:/app/Data/quiz.json:ro
+      # сохранение игры переживает перезапуск контейнера
+      - quiz-state:/app/state
+
+volumes:
+  quiz-state:
