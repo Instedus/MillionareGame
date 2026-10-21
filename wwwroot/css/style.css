@@ -111,6 +111,17 @@ body {
   text-align: center;
 }
 
+.glow-about  {
+  font-family: var(--font-title);
+  background: linear-gradient(180deg, #fff6d8 0%, var(--gold) 45%, #e39b16 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter: drop-shadow(0 0 22px rgba(255, 200, 80, 0.45));
+  text-align: center;
+}
+
 .btn {
   font-family: var(--font-ui);
   font-size: 1rem;
