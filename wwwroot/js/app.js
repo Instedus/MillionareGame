@@ -162,9 +162,9 @@ function renderSetup() {
   const catsInfo = CONFIG.categories
     .map(c => c.isBackup ? `${c.count} резервных` : `${c.count}×${c.label}`)
     .join(' • ');
-  $('setup-stats').innerHTML =
-    `<b>${STATE.teams.length}</b> ${teamsWord(STATE.teams.length)} &nbsp;•&nbsp; ${CONFIG.totalQuestions} ${pointsWord(CONFIG.totalQuestions)}: ${catsInfo}` +
-    `<br>Подсказки у каждой команды: 50:50 · 📞 звонок учителю (${CONFIG.phoneSeconds} с) · 👥 помощь зала (${CONFIG.audienceSeconds} с)`;
+  // $('setup-stats').innerHTML =
+  //   `<b>${STATE.teams.length}</b> ${teamsWord(STATE.teams.length)} &nbsp;•&nbsp; ${CONFIG.totalQuestions} ${pointsWord(CONFIG.totalQuestions)}: ${catsInfo}` +
+  //   `<br>Подсказки у каждой команды: 50:50 · 📞 звонок учителю (${CONFIG.phoneSeconds} с) · 👥 помощь зала (${CONFIG.audienceSeconds} с)`;
 
   const start = $('btn-start');
   start.disabled = STATE.teams.length === 0;
