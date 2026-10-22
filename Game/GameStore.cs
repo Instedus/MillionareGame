@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 
 namespace MillionaireQuiz.Game;
@@ -20,6 +21,9 @@ public sealed class TeamState
     public bool FiftyUsed { get; set; }
     public bool PhoneUsed { get; set; }
     public bool AudienceUsed { get; set; }
+    public bool TransferUsed { get; set; }
+    public bool InsuranceUsed { get; set; }
+    public bool DoubleUsed { get; set; }
     public int CorrectCount { get; set; }
     public int WrongCount { get; set; }
     public int ColorIndex { get; set; }
@@ -41,6 +45,15 @@ public sealed class TurnState
     public List<string> HiddenLetters { get; set; } = new();
     public string? ChosenLetter { get; set; }
     public bool? WasCorrect { get; set; }
+
+    // ---------- new modifiers ----------
+    public bool Transferred { get; set; }
+    public bool Insured { get; set; }
+    public bool Doubled { get; set; }
+    public bool TimedOut { get; set; }
+
+    [JsonIgnore]
+    public bool HasAnswered => ChosenLetter != null || TimedOut;
 }
 
 public sealed class PersistedState
@@ -61,6 +74,7 @@ public sealed record OptionDto(string Letter, string Text);
 public sealed record TeamDto(
     Guid Id, string Name, int Score,
     bool FiftyUsed, bool PhoneUsed, bool AudienceUsed,
+    bool TransferUsed, bool InsuranceUsed, bool DoubleUsed,
     int CorrectCount, int WrongCount, int ColorIndex);
 
 public sealed record CellDto(
@@ -76,10 +90,12 @@ public sealed record TurnQuestionDto(
     string Text, IReadOnlyList<OptionDto> Options, IReadOnlyList<string> Hidden);
 
 public sealed record TurnAnsweredDto(
-    string Chosen, bool Correct, string CorrectLetter, string? Explanation,
-    int Delta, int NewScore);
+    string? Chosen, bool Correct, string CorrectLetter, string? Explanation,
+    int Delta, int NewScore, bool TimedOut);
 
-public sealed record TurnDto(Guid TeamId, string TeamName, TurnQuestionDto Question, TurnAnsweredDto? Answered);
+public sealed record TurnDto(
+    Guid TeamId, string TeamName, TurnQuestionDto Question, TurnAnsweredDto? Answered,
+    bool Transferred, bool Insured, bool Doubled);
 
 public sealed record StateDto(
     string Phase,
@@ -95,8 +111,16 @@ public sealed record CatInfoDto(string Id, int Points, string Label, bool IsBack
 
 public sealed record ConfigDto(
     string Title, string Subtitle, string Theme,
-    int PhoneSeconds, int AudienceSeconds, int BackupPoints,
+    int PhoneSeconds, int AudienceSeconds, int AnswerSeconds, int BackupPoints,
     IReadOnlyList<CatInfoDto> Categories, int TotalQuestions);
+
+/// <summary>Result of one roulette spin: either a question or a flat score modifier.</summary>
+public sealed record SpinOutcomeDto(
+    string Kind, string Label, int Delta, int NewScore,
+    Guid TeamId, string TeamName,
+    string? QuestionId, string? QuestionNumber);
+
+public sealed record SpinResultDto(StateDto State, SpinOutcomeDto Outcome);
 
 // ---------- the store ----------
 
@@ -194,11 +218,12 @@ public sealed class GameStore
         }
     }
 
-    public StateDto Spin(Guid? teamId, string categoryId)
+    public SpinResultDto Spin(Guid? teamId, string categoryId)
     {
         lock (_lock)
         {
             RequirePlaying();
+            if (_turn != null) throw new GameException("Сначала завершите текущий ход.");
             var team = teamId.HasValue
                 ? GetTeam(teamId.Value)
                 : _activeTeamId.HasValue
@@ -211,13 +236,37 @@ public sealed class GameStore
             var pool = cat.Questions.Where(q => _used.All(u => u.QuestionId != q.Id)).ToList();
             if (pool.Count == 0) throw new GameException("В этой категории не осталось вопросов.");
 
-            var picked = pool[_rnd.Next(pool.Count)];
             _activeTeamId = team.Id;
-            _turn = new TurnState { TeamId = team.Id, QuestionId = picked.Id };
-            _used.Add(new UsedEntry { QuestionId = picked.Id, TeamId = team.Id, TeamName = team.Name });
+
+            // 80% — вопрос, 20% — модификатор счёта. Матожидание модификаторов ~0,
+            // поэтому они не ломают баланс: +1(6%) +2(4%) −1(6%) −2(4%).
+            var roll = _rnd.Next(100);
+            if (roll < 80)
+            {
+                var picked = pool[_rnd.Next(pool.Count)];
+                _turn = new TurnState { TeamId = team.Id, QuestionId = picked.Id };
+                _used.Add(new UsedEntry { QuestionId = picked.Id, TeamId = team.Id, TeamName = team.Name });
+
+                Save();
+                return new SpinResultDto(Build(), new SpinOutcomeDto(
+                    "question", "", 0, team.Score, team.Id, team.Name,
+                    picked.Id, picked.NumberLabel));
+            }
+
+            var (kind, delta) = roll switch
+            {
+                < 86 => ("plus1", 1),
+                < 90 => ("plus2", 2),
+                < 96 => ("minus1", -1),
+                _ => ("minus2", -2)
+            };
+            team.Score += delta;
+            var abs = Math.Abs(delta);
+            var label = (delta > 0 ? "+" : "−") + abs + " " + QuizBank.Plural(abs, "балл", "балла", "баллов");
 
             Save();
-            return Build();
+            return new SpinResultDto(Build(), new SpinOutcomeDto(
+                kind, label, delta, team.Score, team.Id, team.Name, null, null));
         }
     }
 
@@ -227,7 +276,7 @@ public sealed class GameStore
         {
             RequirePlaying();
             var turn = _turn ?? throw new GameException("Сейчас нет открытого вопроса.");
-            if (turn.ChosenLetter != null) throw new GameException("Ответ на вопрос уже дан.");
+            if (turn.HasAnswered) throw new GameException("Ответ на вопрос уже дан.");
 
             var team = GetTeam(turn.TeamId);
             var q = GetQuestion(turn.QuestionId);
@@ -255,10 +304,70 @@ public sealed class GameStore
                     if (team.AudienceUsed) throw new GameException("Подсказка «Помощь зала» этой командой уже использована.");
                     team.AudienceUsed = true;
                     break;
+                case "insurance":
+                    if (team.InsuranceUsed) throw new GameException("Страховка этой командой уже использована.");
+                    if (turn.Doubled) throw new GameException("Страховку нельзя совмещать с удвоением.");
+                    if (turn.Insured) throw new GameException("Страховка уже действует на этот вопрос.");
+                    team.InsuranceUsed = true;
+                    turn.Insured = true;
+                    break;
+                case "double":
+                    if (team.DoubleUsed) throw new GameException("Удвоение этой командой уже использовано.");
+                    if (turn.Insured) throw new GameException("Удвоение нельзя совмещать со страховкой.");
+                    if (turn.Doubled) throw new GameException("Удвоение уже действует на этот вопрос.");
+                    team.DoubleUsed = true;
+                    turn.Doubled = true;
+                    break;
                 default:
                     throw new GameException("Неизвестная подсказка.");
             }
 
+            Save();
+            return Build();
+        }
+    }
+
+    /// <summary>
+    /// Передать текущий вопрос другой команде. Разрешено не более одного раза за ход
+    /// и не более одного раза за игру для каждой команды.
+    /// </summary>
+    public StateDto Transfer(Guid targetTeamId)
+    {
+        lock (_lock)
+        {
+            RequirePlaying();
+            var turn = _turn ?? throw new GameException("Сейчас нет открытого вопроса.");
+            if (turn.HasAnswered) throw new GameException("Ответ на вопрос уже дан.");
+            if (turn.Transferred) throw new GameException("За этот ход вопрос уже передавали — второй раз нельзя.");
+
+            var team = GetTeam(turn.TeamId);
+            var target = GetTeam(targetTeamId);
+            if (target.Id == team.Id) throw new GameException("Нельзя передать вопрос той же самой команде.");
+            if (team.TransferUsed) throw new GameException("Передача вопроса этой командой уже использована.");
+
+            team.TransferUsed = true;
+            turn.Transferred = true;
+            turn.TeamId = target.Id;
+            _activeTeamId = target.Id;
+
+            var entry = _used.FirstOrDefault(u => u.QuestionId == turn.QuestionId);
+            if (entry != null) { entry.TeamId = target.Id; entry.TeamName = target.Name; }
+
+            Save();
+            return Build();
+        }
+    }
+
+    /// <summary>Time is up: reveal the answer but award/deduct nothing.</summary>
+    public StateDto Timeout()
+    {
+        lock (_lock)
+        {
+            RequirePlaying();
+            var turn = _turn ?? throw new GameException("Сейчас нет открытого вопроса.");
+            if (turn.HasAnswered) throw new GameException("Ответ на этот вопрос уже дан.");
+
+            turn.TimedOut = true;
             Save();
             return Build();
         }
@@ -270,7 +379,7 @@ public sealed class GameStore
         {
             RequirePlaying();
             var turn = _turn ?? throw new GameException("Сейчас нет открытого вопроса.");
-            if (turn.ChosenLetter != null) throw new GameException("Ответ на этот вопрос уже дан.");
+            if (turn.HasAnswered) throw new GameException("Ответ на этот вопрос уже дан.");
 
             letter = (letter ?? "").Trim().ToUpperInvariant();
             var q = GetQuestion(turn.QuestionId);
@@ -282,7 +391,10 @@ public sealed class GameStore
 
             turn.ChosenLetter = letter;
             turn.WasCorrect = correct;
-            team.Score += correct ? q.Points : -q.Points;
+
+            var stake = q.Points * (turn.Doubled ? 2 : 1);
+            var delta = correct ? stake : (turn.Insured ? 0 : -stake);
+            team.Score += delta;
             if (correct) team.CorrectCount++; else team.WrongCount++;
 
             var entry = _used.FirstOrDefault(u => u.QuestionId == q.Id);
@@ -304,7 +416,7 @@ public sealed class GameStore
         {
             RequirePlaying();
             if (_turn == null) throw new GameException("Сейчас нет открытого хода.");
-            if (_turn.ChosenLetter != null) throw new GameException("Ответ уже дан — просто закройте ход.");
+            if (_turn.HasAnswered) throw new GameException("Ответ уже дан — просто закройте ход.");
             _turn = null;
             Save();
             return Build();
@@ -355,6 +467,9 @@ public sealed class GameStore
                     t.FiftyUsed = false;
                     t.PhoneUsed = false;
                     t.AudienceUsed = false;
+                    t.TransferUsed = false;
+                    t.InsuranceUsed = false;
+                    t.DoubleUsed = false;
                     t.CorrectCount = 0;
                     t.WrongCount = 0;
                 }
@@ -422,13 +537,14 @@ public sealed class GameStore
         {
             var team = _teams.FirstOrDefault(t => t.Id == _turn.TeamId);
             TurnAnsweredDto? answered = null;
-            if (_turn.ChosenLetter != null && _turn.WasCorrect != null)
+            if (_turn.HasAnswered)
             {
-                var wasCorrect = _turn.WasCorrect.Value;
+                var wasCorrect = _turn.WasCorrect == true;
+                var stake = tq.Points * (_turn.Doubled ? 2 : 1);
+                var delta = _turn.TimedOut ? 0 : (wasCorrect ? stake : (_turn.Insured ? 0 : -stake));
                 answered = new TurnAnsweredDto(
                     _turn.ChosenLetter, wasCorrect, tq.CorrectLetter, tq.Explanation,
-                    wasCorrect ? tq.Points : -tq.Points,
-                    team?.Score ?? 0);
+                    delta, team?.Score ?? 0, _turn.TimedOut);
             }
             var catLabel = _bank.Categories.FirstOrDefault(c => c.Id == tq.CategoryId)?.Label ?? "";
             turnDto = new TurnDto(
@@ -438,7 +554,8 @@ public sealed class GameStore
                     tq.Text,
                     tq.Options.Select(o => new OptionDto(o.Letter, o.Text)).ToList(),
                     _turn.HiddenLetters.ToList()),
-                answered);
+                answered,
+                _turn.Transferred, _turn.Insured, _turn.Doubled);
         }
 
         var left = Math.Max(_bank.TotalQuestions - _used.Count, 0);
@@ -452,6 +569,7 @@ public sealed class GameStore
             },
             _teams.Select(t => new TeamDto(
                 t.Id, t.Name, t.Score, t.FiftyUsed, t.PhoneUsed, t.AudienceUsed,
+                t.TransferUsed, t.InsuranceUsed, t.DoubleUsed,
                 t.CorrectCount, t.WrongCount, t.ColorIndex)).ToList(),
             _activeTeamId,
             board,
@@ -475,6 +593,7 @@ public sealed class GameStore
                 {
                     Id = t.Id, Name = t.Name, Score = t.Score,
                     FiftyUsed = t.FiftyUsed, PhoneUsed = t.PhoneUsed, AudienceUsed = t.AudienceUsed,
+                    TransferUsed = t.TransferUsed, InsuranceUsed = t.InsuranceUsed, DoubleUsed = t.DoubleUsed,
                     CorrectCount = t.CorrectCount, WrongCount = t.WrongCount, ColorIndex = t.ColorIndex
                 }).ToList(),
                 ActiveTeamId = _activeTeamId,
@@ -487,7 +606,9 @@ public sealed class GameStore
                 {
                     TeamId = _turn.TeamId, QuestionId = _turn.QuestionId,
                     HiddenLetters = _turn.HiddenLetters.ToList(),
-                    ChosenLetter = _turn.ChosenLetter, WasCorrect = _turn.WasCorrect
+                    ChosenLetter = _turn.ChosenLetter, WasCorrect = _turn.WasCorrect,
+                    Transferred = _turn.Transferred, Insured = _turn.Insured,
+                    Doubled = _turn.Doubled, TimedOut = _turn.TimedOut
                 },
                 Winners = _winners?.ToList()
             };

@@ -12,6 +12,16 @@ let pendingScorePop = null; // {teamId, delta}
 const TEAM_COLORS = ['#ffd76a', '#4d9dff', '#2dd16a', '#ff6b9d', '#b96bff', '#ff9d4d', '#4dd8e6', '#e8e84d', '#ff4d5e', '#8affc1'];
 const TEAM_EMOJI = ['🦁', '🦅', '🐻', '🐉', '🦊', '🐺', '🦉', '🐝', '🐬', '🦄'];
 
+// Модификаторы счёта на рулетке. Матожидание ~0, поэтому баланс не страдает.
+const WHEEL_MODS = {
+  plus1: { number: '+1', sign: 'plus' },
+  plus2: { number: '+2', sign: 'plus' },
+  minus1: { number: '−1', sign: 'minus' },
+  minus2: { number: '−2', sign: 'minus' }
+};
+const WHEEL_MODS_LIST = Object.entries(WHEEL_MODS)
+  .map(([kind, m]) => ({ id: 'mod:' + kind, number: m.number, kind: 'mod', sign: m.sign }));
+
 const $ = id => document.getElementById(id);
 
 function esc(s) {
@@ -82,13 +92,15 @@ function showScreen(name) {
 
 function closeQuestionOverlay() {
   $('overlay-question').classList.add('hidden');
+  stopAnswerTimer();
 }
 
 function closeAllOverlays() {
-  for (const id of ['overlay-question', 'overlay-roulette', 'overlay-timer', 'overlay-endbanner']) {
+  for (const id of ['overlay-question', 'overlay-roulette', 'overlay-timer', 'overlay-transfer', 'overlay-endbanner']) {
     $(id).classList.add('hidden');
   }
   stopTimer();
+  stopAnswerTimer();
 }
 
 /* ---------- boot ---------- */
@@ -212,6 +224,9 @@ function renderTeamsPanel() {
         <span class="ll-chip ${t.fiftyUsed ? 'used' : ''}" title="50:50">½</span>
         <span class="ll-chip ${t.phoneUsed ? 'used' : ''}" title="Звонок учителю">📞</span>
         <span class="ll-chip ${t.audienceUsed ? 'used' : ''}" title="Помощь зала">👥</span>
+        <span class="ll-chip ${t.transferUsed ? 'used' : ''}" title="Передача вопроса">🔄</span>
+        <span class="ll-chip ${t.insuranceUsed ? 'used' : ''}" title="Страховка">🛡</span>
+        <span class="ll-chip ${t.doubleUsed ? 'used' : ''}" title="Удвоение">✖2</span>
       </div>`;
     card.addEventListener('click', () => setActiveTeamFlow(t.id));
     panel.appendChild(card);
@@ -295,18 +310,40 @@ async function spinFlow(catId) {
   AudioSfx.unlock();
   AudioSfx.click();
   try {
-    const poolBefore = cat.cells.filter(c => !c.used).map(c => ({ id: c.questionId, number: c.number }));
-    const st = await API.spin(STATE.activeTeamId, catId);
-    STATE = st;
-    renderGame();
-    const team = STATE.teams.find(t => t.id === STATE.turn.teamId);
+    const poolBefore = cat.cells.filter(c => !c.used)
+      .map(c => ({ id: c.questionId, number: c.number, kind: 'question' }));
+    const result = await API.spin(STATE.activeTeamId, catId);
+    const outcome = result.outcome;
+    const isQuestion = outcome.kind === 'question';
+
+    const chosen = isQuestion
+      ? { id: outcome.questionId, number: outcome.questionNumber, kind: 'question' }
+      : {
+          id: 'mod:' + outcome.kind,
+          number: WHEEL_MODS[outcome.kind].number,
+          kind: 'mod',
+          sign: WHEEL_MODS[outcome.kind].sign,
+          label: outcome.label
+        };
+
     await Roulette.spin({
-      teamName: team ? team.name : '—',
+      teamName: outcome.teamName,
       categoryLabel: cat.label,
-      pool: poolBefore,
-      chosen: { id: STATE.turn.question.id, number: STATE.turn.question.number }
+      pool: poolBefore.concat(WHEEL_MODS_LIST),
+      chosen
     });
-    openQuestionOverlay(STATE.turn);
+
+    STATE = result.state;
+    if (isQuestion) {
+      renderGame();
+      openQuestionOverlay(STATE.turn);
+    } else {
+      pendingScorePop = { teamId: outcome.teamId, delta: outcome.delta };
+      renderGame();
+      toast(`🎰 Рулетка: ${outcome.label} команде «${outcome.teamName}»`, outcome.delta > 0 ? 'info' : 'error');
+      if (outcome.delta > 0) { AudioSfx.correct(); Confetti.celebrate(); }
+      else { AudioSfx.wrong(); }
+    }
   } catch (e) {
     toast(e.message, 'error');
   }
@@ -317,7 +354,7 @@ async function spinFlow(catId) {
 
 let optionEls = {};
 
-function openQuestionOverlay(turn) {
+function openQuestionOverlay(turn, resumeLeft) {
   const q = turn.question;
   const team = STATE.teams.find(t => t.id === turn.teamId);
   const answered = !!turn.answered;
@@ -327,11 +364,13 @@ function openQuestionOverlay(turn) {
   badge.innerHTML = `<span class="dot"></span> Команда «${esc(turn.teamName)}»`;
 
   $('q-number').textContent = `Вопрос №${q.number} · ${q.categoryLabel}`;
+  const stake = turn.doubled ? q.points * 2 : q.points;
   $('q-points').innerHTML = q.points > 0
-    ? `${q.points} ${pointsWord(q.points)} <span style="font-size:.8rem;color:var(--muted)">(±)</span>`
+    ? `${stake} ${pointsWord(stake)} <span style="font-size:.8rem;color:var(--muted)">${turn.insured ? '(ошибка = 0)' : '(±)'}</span>`
     : `Резервный вопрос <span style="font-size:.8rem;color:var(--muted)">(0 очков)</span>`;
 
   $('q-text').textContent = q.text;
+  renderTurnEffects(turn);
 
   // options
   const box = $('q-options');
@@ -363,22 +402,48 @@ function openQuestionOverlay(turn) {
 
   if (answered) {
     applyAnsweredVisual(turn.answered, q, /*instant*/ true);
+    stopAnswerTimer();
+  } else {
+    startAnswerTimer(resumeLeft);
   }
 
   $('overlay-question').classList.remove('hidden');
 }
 
+function renderTurnEffects(turn) {
+  const box = $('q-effects');
+  if (!turn) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  const chips = [];
+  if (turn.transferred) chips.push('<span class="q-effect">🔄 Вопрос передан другой команде</span>');
+  if (turn.insured) chips.push('<span class="q-effect insured">🛡 Страховка: ошибка без штрафа</span>');
+  if (turn.doubled) chips.push('<span class="q-effect doubled">✖2 Удвоение: очки ×2</span>');
+  box.innerHTML = chips.join('');
+  box.classList.toggle('hidden', chips.length === 0);
+}
+
 function updateLifelineButtons(team, forceDisable) {
+  const turn = STATE.turn;
   document.querySelectorAll('#q-lifelines .lifeline-btn').forEach(btn => {
     const type = btn.dataset.ll;
-    const used = team ? (type === 'fifty' ? team.fiftyUsed : type === 'phone' ? team.phoneUsed : team.audienceUsed) : true;
-    btn.disabled = used || forceDisable || !team;
+    let used = !team;
+    if (team) {
+      if (type === 'fifty') used = team.fiftyUsed;
+      else if (type === 'phone') used = team.phoneUsed;
+      else if (type === 'audience') used = team.audienceUsed;
+      else if (type === 'transfer') used = team.transferUsed || !!turn?.transferred;
+      else if (type === 'insurance') used = team.insuranceUsed || !!turn?.insured || !!turn?.doubled;
+      else if (type === 'double') used = team.doubleUsed || !!turn?.doubled || !!turn?.insured;
+      else used = true;
+    }
+    btn.disabled = used || forceDisable;
     btn.classList.toggle('used-flag', used);
   });
 }
 
 function applyAnsweredVisual(ans, q, instant) {
-  const chosen = optionEls[ans.chosen];
+  stopAnswerTimer();
+  const timedOut = !!ans.timedOut;
+  const chosen = ans.chosen ? optionEls[ans.chosen] : null;
   const correctEl = optionEls[ans.correctLetter];
   Object.values(optionEls).forEach(el => el.classList.add('disabled'));
 
@@ -393,10 +458,12 @@ function applyAnsweredVisual(ans, q, instant) {
   const banner = document.createElement('div');
   const deltaAbs = Math.abs(ans.delta);
   const deltaText = ans.delta === 0
-    ? '0 очков (резервный вопрос)'
+    ? '0 очков'
     : (ans.delta > 0 ? `+${deltaAbs}` : `−${deltaAbs}`) + ' ' + pointsWord(deltaAbs);
   banner.className = 'result-banner ' + (ans.correct ? 'good' : 'bad');
-  banner.textContent = ans.correct ? `✅ ВЕРНО!  ${deltaText}` : `❌ НЕВЕРНО!  ${deltaText}`;
+  banner.textContent = timedOut
+    ? `⏰ ВРЕМЯ ВЫШЛО!  ${deltaText}`
+    : ans.correct ? `✅ ВЕРНО!  ${deltaText}` : `❌ НЕВЕРНО!  ${deltaText}`;
   $('q-options').after(banner);
 
   // explanation
@@ -418,6 +485,8 @@ async function answerFlow(letter) {
   if (!el || el.classList.contains('eliminated') || el.classList.contains('disabled')) return;
 
   busy = true;
+  const timerLeft = answerTimer ? answerTimer.left : undefined;
+  stopAnswerTimer();
   Object.values(optionEls).forEach(o => { if (o !== el) o.classList.add('disabled'); });
   el.classList.add('suspense');
   suspenseActive = true;
@@ -437,6 +506,7 @@ async function answerFlow(letter) {
     $('btn-pass').disabled = false;
     updateLifelineButtons(STATE.teams.find(t => t.id === STATE.turn.teamId), false);
     Object.values(optionEls).forEach(o => o.classList.remove('disabled'));
+    startAnswerTimer(timerLeft);
     toast(e.message, 'error');
     busy = false;
     return;
@@ -470,15 +540,18 @@ async function answerFlow(letter) {
 
 async function useLifeline(type) {
   if (busy || suspenseActive || !STATE.turn || STATE.turn.answered) return;
+  if (type === 'transfer') { await transferFlow(); return; }
+
   busy = true;
   AudioSfx.unlock();
   AudioSfx.click();
+  const timerLeft = answerTimer ? answerTimer.left : undefined;
   try {
     STATE = await API.lifeline(type);
     const team = STATE.teams.find(t => t.id === STATE.turn.teamId);
-    updateLifelineButtons(team, false);
 
     if (type === 'fifty') {
+      updateLifelineButtons(team, false);
       const btn = document.querySelector(`#q-lifelines .lifeline-btn[data-ll="fifty"]`);
       if (btn) { btn.classList.add('flash50'); setTimeout(() => btn.classList.remove('flash50'), 850); }
       AudioSfx.eliminate();
@@ -486,8 +559,16 @@ async function useLifeline(type) {
         const el = optionEls[letter];
         if (el) el.classList.add('eliminated', 'disabled');
       }
+      renderGame();
+    } else if (type === 'insurance' || type === 'double') {
+      openQuestionOverlay(STATE.turn, timerLeft);
+      toast(type === 'insurance'
+        ? '🛡 Страховка активна: ошибка не отнимет очки'
+        : '✖2 Удвоение активно: очки вопроса удвоены', 'info');
+      renderGame();
     } else {
       const isPhone = type === 'phone';
+      pauseAnswerTimer();
       openTimer(
         isPhone ? 'ЗВОНОК УЧИТЕЛЮ' : 'ПОМОЩЬ ЗАЛА',
         isPhone
@@ -496,12 +577,75 @@ async function useLifeline(type) {
         isPhone ? '📞' : '👥',
         isPhone ? CONFIG.phoneSeconds : CONFIG.audienceSeconds
       );
+      renderGame();
     }
-    renderGame();
   } catch (e) {
     toast(e.message, 'error');
   }
   busy = false;
+}
+
+/* ---------- transfer question ---------- */
+
+async function transferFlow() {
+  if (busy || suspenseActive || !STATE.turn || STATE.turn.answered) return;
+  if (STATE.turn.transferred) { toast('За этот ход вопрос уже передавали — второй раз нельзя', 'error'); return; }
+  const team = STATE.teams.find(t => t.id === STATE.turn.teamId);
+  if (team && team.transferUsed) { toast('Передача вопроса этой командой уже использована', 'error'); return; }
+
+  const targetId = await pickTransferTarget();
+  if (!targetId) return;
+
+  busy = true;
+  const timerLeft = answerTimer ? answerTimer.left : undefined;
+  try {
+    STATE = await API.transfer(targetId);
+    AudioSfx.click();
+    renderGame();
+    openQuestionOverlay(STATE.turn, timerLeft);
+    toast(`🔄 Вопрос передан команде «${STATE.turn.teamName}»`, 'info');
+  } catch (e) {
+    resumeAnswerTimer();
+    toast(e.message, 'error');
+  }
+  busy = false;
+}
+
+function pickTransferTarget() {
+  return new Promise(resolve => {
+    const modal = $('overlay-transfer');
+    const list = $('transfer-list');
+    const cancel = $('btn-transfer-cancel');
+    list.innerHTML = '';
+
+    const others = STATE.teams.filter(t => t.id !== STATE.turn.teamId);
+    if (others.length === 0) {
+      toast('Нет другой команды, которой можно передать вопрос', 'error');
+      resolve(null);
+      return;
+    }
+    for (const t of others) {
+      const btn = document.createElement('button');
+      btn.className = 'transfer-team';
+      btn.innerHTML = `<span class="tt-emoji">${teamEmoji(t)}</span>
+        <span class="tt-dot" style="color:${teamColor(t)}">●</span>
+        <span class="tt-name">${esc(t.name)}</span>`;
+      btn.addEventListener('click', () => cleanup(t.id));
+      list.appendChild(btn);
+    }
+
+    function cleanup(result) {
+      modal.classList.add('hidden');
+      cancel.removeEventListener('click', onCancel);
+      resolve(result);
+      if (result === null) resumeAnswerTimer(); // при передаче таймер перезапустит openQuestionOverlay
+    }
+    function onCancel() { AudioSfx.click(); cleanup(null); }
+
+    cancel.addEventListener('click', onCancel);
+    pauseAnswerTimer();
+    modal.classList.remove('hidden');
+  });
 }
 
 async function passFlow() {
@@ -564,6 +708,88 @@ async function finishFlow() {
   AudioSfx.click();
   await doFinish();
   busy = false;
+}
+
+/* ---------- answer timer (30 sec) ---------- */
+
+let answerTimer = null;
+
+function startAnswerTimer(resumeLeft) {
+  stopAnswerTimer();
+  const total = Math.max(5, Number(CONFIG?.answerSeconds) || 30);
+  const left = Number.isFinite(resumeLeft)
+    ? Math.min(total, Math.max(1, resumeLeft))
+    : total;
+
+  const box = $('q-timer');
+  const secEl = $('q-timer-sec');
+  const fill = $('q-timer-fill');
+  box.classList.remove('hidden', 'warn', 'danger');
+  secEl.classList.remove('tick');
+  secEl.textContent = String(left);
+  fill.style.width = ((left / total) * 100) + '%';
+
+  answerTimer = {
+    total, left, paused: false, done: false,
+    interval: setInterval(() => {
+      if (!answerTimer || answerTimer.paused || answerTimer.done || busy) return;
+      answerTimer.left--;
+      renderAnswerTimer();
+      if (answerTimer.left <= 0) answerTimerDone();
+    }, 1000)
+  };
+  renderAnswerTimer();
+}
+
+function renderAnswerTimer() {
+  if (!answerTimer) return;
+  const t = answerTimer;
+  const secEl = $('q-timer-sec');
+  const box = $('q-timer');
+  secEl.textContent = String(Math.max(0, t.left));
+  secEl.classList.remove('tick');
+  void secEl.offsetWidth;
+  secEl.classList.add('tick');
+  $('q-timer-fill').style.width = ((Math.max(0, t.left) / t.total) * 100) + '%';
+  box.classList.toggle('warn', t.left <= Math.min(10, Math.round(t.total / 3)) && t.left > 5);
+  box.classList.toggle('danger', t.left <= 5);
+  if (t.left <= 5 && t.left > 0) AudioSfx.timerTick(false);
+}
+
+function answerTimerDone() {
+  if (!answerTimer || answerTimer.done) return;
+  answerTimer.done = true;
+  clearInterval(answerTimer.interval);
+  const box = $('q-timer');
+  box.classList.add('danger');
+  $('q-timer-sec').textContent = '⏰';
+  $('q-timer-fill').style.width = '0%';
+  AudioSfx.bell();
+  timeoutFlow();
+}
+
+async function timeoutFlow() {
+  if (busy || !STATE?.turn || STATE.turn.answered) return;
+  busy = true;
+  try {
+    STATE = await API.timeout();
+    pendingScorePop = { teamId: STATE.turn.teamId, delta: 0 };
+    renderGame();
+    applyAnsweredVisual(STATE.turn.answered, STATE.turn.question, false);
+    AudioSfx.wrong();
+    toast('⏰ Время вышло! Очки не начислены — вопрос остался сыгранным', 'error');
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+  busy = false;
+}
+
+function pauseAnswerTimer() { if (answerTimer && !answerTimer.done) answerTimer.paused = true; }
+function resumeAnswerTimer() { if (answerTimer && !answerTimer.done) answerTimer.paused = false; }
+
+function stopAnswerTimer() {
+  if (answerTimer) { clearInterval(answerTimer.interval); answerTimer = null; }
+  $('q-timer')?.classList.add('hidden');
 }
 
 /* ---------- timer overlay ---------- */
@@ -780,7 +1006,7 @@ function bindEvents() {
 
   // timer
   $('btn-timer-pause').addEventListener('click', toggleTimerPause);
-  $('btn-timer-close').addEventListener('click', () => { AudioSfx.click(); stopTimer(); });
+  $('btn-timer-close').addEventListener('click', () => { AudioSfx.click(); stopTimer(); resumeAnswerTimer(); });
 
   // results
   $('btn-new-game').addEventListener('click', () => resetFlow(true));

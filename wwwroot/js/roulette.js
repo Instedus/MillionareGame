@@ -27,8 +27,9 @@ const Roulette = (() => {
    * @param {object} p
    * @param {string} p.teamName    — имя команды
    * @param {string} p.categoryLabel — «2 балла» / «Резерв»
-   * @param {Array}  p.pool        — доступные (не сыгранные) вопросы категории: {id, number}
-   * @param {object} p.chosen      — выпавший вопрос: {id, number}
+   * @param {Array}  p.pool        — элементы ленты: вопросы {id, number, kind:'question'}
+   *                                 и модификаторы {id, number, kind:'mod', sign:'plus'|'minus'}
+   * @param {object} p.chosen      — выпавший элемент (вопрос или модификатор)
    * @returns {Promise<void>}
    */
   function spin(p) {
@@ -46,15 +47,16 @@ const Roulette = (() => {
       const items = [];
       for (let l = 0; l < loops; l++) items.push(...shuffle(pool));
       // гарантируем, что финальный элемент — chosen
-      while (items.length && items[items.length - 1].id !== p.chosen.id) items.push(shuffle(pool)[0]);
-      if (!items.length || items[items.length - 1].id !== p.chosen.id) items.push(p.chosen);
+      if (items.length) items[items.length - 1] = p.chosen;
+      else items.push(p.chosen);
       const chosenIdx = items.length - 1;
 
       for (const it of items) {
         const cell = document.createElement('div');
-        cell.className = 'reel-cell';
+        const isMod = it.kind === 'mod';
+        cell.className = 'reel-cell' + (isMod ? ' mod ' + (it.sign || 'plus') : '');
         cell.dataset.qid = it.id;
-        cell.innerHTML = `<span class="rc-q">вопрос</span><span class="rc-n">${esc(it.number)}</span>`;
+        cell.innerHTML = `<span class="rc-q">${isMod ? 'счёт' : 'вопрос'}</span><span class="rc-n">${esc(it.number)}</span>`;
         strip.appendChild(cell);
       }
 
@@ -107,7 +109,10 @@ const Roulette = (() => {
           const winCell = strip.children[chosenIdx];
           if (winCell) winCell.classList.add('win');
           AudioSfx.reelStop();
-          resultEl.textContent = `⭐ Выпал вопрос №${p.chosen.number}! ⭐`;
+          const isMod = p.chosen.kind === 'mod';
+          resultEl.textContent = isMod
+            ? `⭐ Рулетка счёта: ${p.chosen.label || p.chosen.number}! ⭐`
+            : `⭐ Выпал вопрос №${p.chosen.number}! ⭐`;
           resultEl.classList.remove('hidden');
           setTimeout(() => {
             overlay.classList.add('hidden');

@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("MillionaireQuiz")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1de0b905f90b6294b641bfa193dda98b75cdfb01")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e00d4af191a2725b185fa2657adda846e6349a07")]
 [assembly: System.Reflection.AssemblyProductAttribute("MillionaireQuiz")]
 [assembly: System.Reflection.AssemblyTitleAttribute("MillionaireQuiz")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

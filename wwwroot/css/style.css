@@ -379,7 +379,7 @@ body {
 .team-score.negative { color: #ff8b96; text-shadow: 0 0 18px rgba(255, 77, 94, .35); }
 .team-score-label { color: var(--muted); font-size: .82rem; }
 
-.ll-icons { display: flex; gap: 8px; margin-top: 10px; }
+.ll-icons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .ll-chip {
   font-size: .82rem;
   padding: 4px 10px;
@@ -804,6 +804,69 @@ body {
   0%, 100% { box-shadow: 0 0 0 rgba(255,215,106,0); }
   30% { box-shadow: 0 0 60px rgba(255, 215, 106, .95); background: linear-gradient(180deg, #ffe9a8, #f0b429); color:#33220a; }
 }
+
+/* ---------- answer timer ---------- */
+
+.q-timer {
+  margin-top: 18px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid rgba(255, 215, 106, .22);
+}
+.q-timer-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.q-timer-label { font-size: .82rem; letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+.q-timer-sec { font-family: var(--font-title); font-size: 1.35rem; font-weight: 700; color: var(--gold); }
+.q-timer-sec.tick { animation: sec-tick .3s ease; }
+.q-timer-bar { height: 9px; border-radius: 6px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.q-timer-fill {
+  height: 100%; width: 100%; border-radius: 6px;
+  background: linear-gradient(90deg, #2dd16a, var(--gold));
+  transition: width .3s linear, background .4s;
+}
+.q-timer.warn .q-timer-fill { background: linear-gradient(90deg, #ff9d4d, #ffb86b); }
+.q-timer.danger .q-timer-fill { background: linear-gradient(90deg, #ff4d5e, #ff8b96); }
+.q-timer.danger .q-timer-sec { color: var(--red); animation: danger-blink .5s step-end infinite; }
+
+/* ---------- active turn modifiers ---------- */
+
+.q-effects { margin-top: 12px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.q-effect {
+  padding: 6px 12px; border-radius: 999px; font-size: .8rem; font-weight: 700;
+  border: 1px solid rgba(255, 215, 106, .4);
+  background: rgba(255, 215, 106, .1);
+  color: var(--gold);
+}
+.q-effect.insured { border-color: rgba(45, 209, 106, .5); background: rgba(45, 209, 106, .12); color: #8affc1; }
+.q-effect.doubled { border-color: rgba(255, 77, 94, .5); background: rgba(255, 77, 94, .12); color: #ffb3ba; }
+
+/* ---------- transfer question modal ---------- */
+
+.transfer-box { max-width: 560px; width: min(92vw, 560px); text-align: center; animation: pop-in .3s ease both; }
+.transfer-title { font-family: var(--font-title); font-size: 1.5rem; color: var(--gold); }
+.transfer-sub { margin-top: 8px; color: var(--muted); font-size: .92rem; line-height: 1.5; }
+.transfer-list { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
+.transfer-team {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, .14);
+  background: rgba(255, 255, 255, .05);
+  color: var(--text); cursor: pointer; font-family: var(--font-ui);
+  transition: transform .15s, border-color .2s, background .2s;
+}
+.transfer-team:hover { transform: translateY(-2px); border-color: var(--gold); background: rgba(255, 215, 106, .1); }
+.transfer-team .tt-emoji { font-size: 1.3rem; }
+.transfer-team .tt-name { font-weight: 700; }
+.transfer-actions { margin-top: 20px; }
+
+/* ---------- roulette score modifiers ---------- */
+
+.reel-cell.mod.plus { background: linear-gradient(180deg, rgba(21, 110, 60, .9), rgba(8, 50, 28, .9)); border-color: rgba(45, 209, 106, .65); }
+.reel-cell.mod.minus { background: linear-gradient(180deg, rgba(120, 22, 34, .9), rgba(55, 8, 15, .9)); border-color: rgba(255, 77, 94, .65); }
+.reel-cell.mod .rc-q { color: #cfd8ff; }
+.reel-cell.mod.plus .rc-n { color: #8affc1; text-shadow: 0 0 14px rgba(45, 209, 106, .6); }
+.reel-cell.mod.minus .rc-n { color: #ffb3ba; text-shadow: 0 0 14px rgba(255, 77, 94, .6); }
+.reel-cell.mod.win .rc-n { color: #fff6d8; }
 
 /* ---------- explanation / result banner ---------- */
 

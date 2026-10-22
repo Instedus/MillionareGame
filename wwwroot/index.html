@@ -94,6 +94,16 @@
         </div>
       </div>
 
+      <div id="q-timer" class="q-timer hidden">
+        <div class="q-timer-row">
+          <span class="q-timer-label">⏱ Время на ответ</span>
+          <span class="q-timer-sec" id="q-timer-sec">30</span>
+        </div>
+        <div class="q-timer-bar"><div class="q-timer-fill" id="q-timer-fill"></div></div>
+      </div>
+
+      <div id="q-effects" class="q-effects hidden"></div>
+
       <div class="q-text-box">
         <div class="q-text" id="q-text"></div>
       </div>
@@ -113,6 +123,18 @@
           <span class="ll-icon">👥</span><span class="ll-name">Помощь зала</span>
           <span class="ll-hint">таймер на обсуждение</span>
         </button>
+        <button class="lifeline-btn" data-ll="transfer">
+          <span class="ll-icon">🔄</span><span class="ll-name">Передача вопроса</span>
+          <span class="ll-hint">отдать вопрос другой команде · 1 раз за ход</span>
+        </button>
+        <button class="lifeline-btn" data-ll="insurance">
+          <span class="ll-icon">🛡</span><span class="ll-name">Страховка</span>
+          <span class="ll-hint">ошибка не отнимет очки · 1 раз за игру</span>
+        </button>
+        <button class="lifeline-btn" data-ll="double">
+          <span class="ll-icon">✖2</span><span class="ll-name">Удвоение</span>
+          <span class="ll-hint">очки вопроса ×2 в обе стороны · 1 раз за игру</span>
+        </button>
       </div>
 
       <div id="q-explain" class="q-explain hidden"></div>
@@ -120,6 +142,18 @@
       <div id="q-actions" class="q-actions">
         <button id="btn-pass" class="btn btn-ghost hidden">🏳️ Сдать ход (0 очков)</button>
         <button id="btn-next-turn" class="btn btn-gold hidden">Следующий ход →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TRANSFER QUESTION OVERLAY ===== -->
+  <div id="overlay-transfer" class="overlay overlay-top hidden">
+    <div class="transfer-box panel">
+      <div class="transfer-title">🔄 Кому передать вопрос?</div>
+      <div class="transfer-sub">Вопрос достанется выбранной команде. Передать можно только один раз за ход.</div>
+      <div id="transfer-list" class="transfer-list"></div>
+      <div class="transfer-actions">
+        <button id="btn-transfer-cancel" class="btn btn-ghost">Отмена</button>
       </div>
     </div>
   </div>

@@ -26,6 +26,9 @@ public sealed class GameOptions
     /// <summary>Duration of the "ask the audience" timer, seconds.</summary>
     public int AudienceSeconds { get; set; } = 60;
 
+    /// <summary>How long a team has to answer a question, seconds.</summary>
+    public int AnswerSeconds { get; set; } = 30;
+
     /// <summary>Points value assigned to backup ("резервные") questions.</summary>
     public int BackupPoints { get; set; } = 0;
 }

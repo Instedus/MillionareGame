@@ -16,6 +16,8 @@ services:
       # --- таймеры подсказок, в секундах ---
       Game__PhoneSeconds: ${PHONE_SECONDS:-60}
       Game__AudienceSeconds: ${AUDIENCE_SECONDS:-60}
+      # --- время на ответ, в секундах ---
+      Game__AnswerSeconds: ${ANSWER_SECONDS:-30}
       # --- сколько очков стоит резервный вопрос (0 = не влияет на счёт) ---
       Game__BackupPoints: ${BACKUP_POINTS:-0}
       # --- пути внутри контейнера ---
