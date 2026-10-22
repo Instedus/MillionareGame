@@ -312,8 +312,17 @@ async function spinFlow(catId) {
   try {
     const poolBefore = cat.cells.filter(c => !c.used)
       .map(c => ({ id: c.questionId, number: c.number, kind: 'question' }));
-    const result = await API.spin(STATE.activeTeamId, catId);
-    const outcome = result.outcome;
+    const response = await API.spin(STATE.activeTeamId, catId);
+    // Поддержка и нового ответа {state, outcome}, и старого (просто StateDto),
+    // чтобы игра не ломалась, если вкладка держит закешированный JS.
+    const resultState = response.state || response;
+    const outcome = response.outcome || (resultState.turn ? {
+      kind: 'question',
+      questionId: resultState.turn.question.id,
+      questionNumber: resultState.turn.question.number,
+      teamName: resultState.turn.teamName
+    } : null);
+    if (!outcome) throw new Error('Рулетка не вернула результат — обновите страницу');
     const isQuestion = outcome.kind === 'question';
 
     const chosen = isQuestion
@@ -333,7 +342,7 @@ async function spinFlow(catId) {
       chosen
     });
 
-    STATE = result.state;
+    STATE = resultState;
     if (isQuestion) {
       renderGame();
       openQuestionOverlay(STATE.turn);

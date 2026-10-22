@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.StaticFiles;
 using MillionaireQuiz.Game;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -21,7 +22,16 @@ app.Logger.LogInformation("Викторина загружена: {Total} воп
 app.Logger.LogInformation("Состояние игры: {Phase}, команд: {Teams}", store.Snapshot().Phase, store.Snapshot().Teams.Count);
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    // index.html не кешируем, чтобы после обновления игры браузер сразу
+    // подхватывал новые ссылки на JS/CSS (иначе старый JS ломает API).
+    OnPrepareResponse = ctx =>
+    {
+        if (ctx.File.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+            ctx.Context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+    }
+});
 
 app.MapGet("/healthz", () => Results.Text("ok"));
 app.MapGameApi();
